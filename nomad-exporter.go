@@ -82,6 +82,14 @@ var (
 		"Task memory RSS usage, bytes",
 		[]string{"job", "group", "alloc", "task", "region", "datacenter", "node"}, nil,
 	)
+	taskEvents = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name:        "nomad_task_events",
+			Help:        "Task events count",
+			ConstLabels: prometheus.Labels{},
+		},
+		[]string{"job", "group", "alloc", "task", "region", "datacenter", "node", "event"},
+	)
 	nodeResourceMemory = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, "", "node_resource_memory_megabytes"),
 		"Amount of allocatable memory the node has in MB",
@@ -126,6 +134,7 @@ func AllocationsByStatus(allocs []*api.AllocationListStub, status string) []*api
 
 type Exporter struct {
 	client *api.Client
+	lastScrapeTime time.Time
 }
 
 func NewExporter(cfg *api.Config) (*Exporter, error) {
@@ -135,6 +144,7 @@ func NewExporter(cfg *api.Config) (*Exporter, error) {
 	}
 	return &Exporter{
 		client: client,
+		lastScrapeTime: time.Now(),
 	}, nil
 }
 
@@ -158,10 +168,14 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- nodeResourceCPU
 	ch <- nodeAllocatedCPU
 	ch <- nodeUsedCPU
+
+	taskEvents.Describe(ch)
 }
 
 // Collect collects nomad metrics
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
+	scrapeTime := time.Now()
+
 	peers, err := e.client.Status().Peers()
 	if err != nil {
 		ch <- prometheus.MustNewConstMetric(
@@ -205,6 +219,30 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	)
 
 	var w sync.WaitGroup
+	for _, a := range allocs {
+		w.Add(1)
+		go func(a *api.AllocationListStub) {
+			defer w.Done()
+			alloc, _, err := e.client.Allocations().Info(a.ID, &api.QueryOptions{})
+			if err != nil {
+				logError(err)
+				return
+			}
+			node, _, err := e.client.Nodes().Info(alloc.NodeID, &api.QueryOptions{})
+			if err != nil {
+				logError(err)
+				return
+			}
+			for taskName, taskState := range alloc.TaskStates {
+				for _, taskEvent := range taskState.Events {
+					if (taskEvent.Time > e.lastScrapeTime.UnixNano() && taskEvent.Time <= scrapeTime.UnixNano()) {
+						taskEvents.WithLabelValues(alloc.Job.Name, alloc.TaskGroup, alloc.Name, taskName, alloc.Job.Region, node.Datacenter, node.Name, taskEvent.Type).Inc()
+					}
+				}
+			}
+		}(a)
+	}
+
 	for _, a := range runningAllocs {
 		w.Add(1)
 		go func(a *api.AllocationListStub) {
@@ -300,6 +338,8 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 		}(a)
 	}
 	w.Wait()
+	taskEvents.Collect(ch)
+	e.lastScrapeTime = scrapeTime
 }
 
 func getRunningAllocs(client *api.Client, nodeID string) ([]*api.Allocation, error) {
