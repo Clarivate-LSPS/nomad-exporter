@@ -133,7 +133,7 @@ func AllocationsByStatus(allocs []*api.AllocationListStub, status string) []*api
 }
 
 type Exporter struct {
-	client *api.Client
+	client         *api.Client
 	lastScrapeTime time.Time
 }
 
@@ -143,7 +143,7 @@ func NewExporter(cfg *api.Config) (*Exporter, error) {
 		return nil, err
 	}
 	return &Exporter{
-		client: client,
+		client:         client,
 		lastScrapeTime: time.Now(),
 	}, nil
 }
@@ -235,7 +235,7 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 			}
 			for taskName, taskState := range alloc.TaskStates {
 				for _, taskEvent := range taskState.Events {
-					if (taskEvent.Time > e.lastScrapeTime.UnixNano() && taskEvent.Time <= scrapeTime.UnixNano()) {
+					if taskEvent.Time > e.lastScrapeTime.UnixNano() && taskEvent.Time <= scrapeTime.UnixNano() {
 						taskEvents.WithLabelValues(alloc.Job.Name, alloc.TaskGroup, alloc.Name, taskName, alloc.Job.Region, node.Datacenter, node.Name, taskEvent.Type).Inc()
 					}
 				}
