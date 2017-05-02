@@ -88,7 +88,7 @@ var (
 			Help:        "Task events count",
 			ConstLabels: prometheus.Labels{},
 		},
-		[]string{"job", "group", "alloc", "task", "region", "datacenter", "node", "event"},
+		[]string{"job", "group", "name", "alloc", "task", "region", "datacenter", "node", "event"},
 	)
 	nodeResourceMemory = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, "", "node_resource_memory_megabytes"),
@@ -236,7 +236,7 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 			for taskName, taskState := range alloc.TaskStates {
 				for _, taskEvent := range taskState.Events {
 					if taskEvent.Time > e.lastScrapeTime.UnixNano() && taskEvent.Time <= scrapeTime.UnixNano() {
-						taskEvents.WithLabelValues(alloc.Job.Name, alloc.TaskGroup, alloc.Name, taskName, alloc.Job.Region, node.Datacenter, node.Name, taskEvent.Type).Inc()
+						taskEvents.WithLabelValues(alloc.Job.Name, alloc.TaskGroup, alloc.Name, alloc.ID, taskName, alloc.Job.Region, node.Datacenter, node.Name, taskEvent.Type).Inc()
 					}
 				}
 			}
